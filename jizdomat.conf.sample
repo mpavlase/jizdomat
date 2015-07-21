@@ -1,0 +1,3 @@
+[default]
+api_key = your-API-key
+api_url = http://www.jizdomat.cz/api/search

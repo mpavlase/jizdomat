@@ -1,0 +1,134 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+
+import json
+import urllib
+import urllib2
+import datetime
+import collections
+import argparse
+import sys
+from ConfigParser import SafeConfigParser
+
+def convert(dictionary):
+    """Recursively converts dictionary keys to strings."""
+    if not isinstance(dictionary, dict):
+        if isinstance(dictionary, unicode):
+            return u2str(dictionary)
+        else:
+            return dictionary
+    return dict((str(k), convert(v))
+        for k, v in dictionary.items())
+
+def u2str(uni):
+    return uni.encode('utf-8')
+
+CONF_FILENAME = 'jizdomat.conf'
+
+class Jizdomat(object):
+    def __init__(self):
+        self.content = []
+        self.options = {}
+
+    def read(self, options):
+        self.options = options
+        date_departure = datetime.datetime.now()
+        if options.days:
+            delta = datetime.timedelta(days=options.days)
+            date_departure += delta
+
+        if options.reverse:
+            options.city_from, options.city_to = options.city_to, options.city_from
+
+        data = {
+            'start': options.city_from,
+            'end': options.city_to,
+            'format': 'json'
+            ,
+            'key': options.api_key,
+            'date_from': date_departure,
+            'limit': options.limit
+        }
+
+        data_url = urllib.urlencode(data)
+        url = options.api_url + '?' + data_url
+        resp = urllib2.urlopen(url).read().decode('utf-8')
+        ret = json.loads(resp)
+        self.content = ret['result']['travels']
+
+    def _format_date(self, date):
+        d = datetime.datetime.strptime(date, '%Y-%m-%d %H:%M:%S')
+        now = datetime.datetime.now()
+        delta = d - now
+        delta_str = '+%s, ' % delta.days
+
+        return d.strftime('%m/%d ({day_dif}%a) %H:%M'.format(day_dif=delta_str))
+
+    def _format_city(self, city):
+        if not self.options.long_location:
+            return city.split(',')[0]
+        return city
+
+    def format(self):
+        ret = []
+        for travel in self.content:
+            travel = convert(travel['travel'])
+
+            if not self.options.all and travel['seats']['empty'] == 0:
+                continue
+
+            s = '{date}, {price} Kc, {seats_empty} volne, {driver} ({start} ➤ {end})'.format(
+                date=self._format_date(travel['date']),
+                start=self._format_city(travel['route']['start']),
+                end=self._format_city(travel['route']['end']),
+                driver=travel['driver']['name'],
+                price=int(float(travel['price'])),
+                seats_empty=travel['seats']['empty'],
+                seats_sum=travel['seats']['total'],
+            )
+            ret.append(s)
+
+        return '\n'.join(ret)
+
+if __name__ == '__main__':
+    config = SafeConfigParser()
+    with open(CONF_FILENAME) as fd:
+        config.readfp(fd)
+
+    parser = argparse.ArgumentParser(description='CLI tool to get info about '
+        'spare seats using Jizdomat.cz API',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('-f', '--from', dest='city_from', metavar='city_from',
+                        default='brno', help='City from you want to travel')
+    parser.add_argument('-t', '--to', dest='city_to', metavar='city_to',
+                        default='frydek-mistek', help='Your destination')
+    parser.add_argument('-d', '--days', dest='days', metavar='days',
+                        default='0', type=int,
+                        help='How many days in relative to current date you '
+                        'want to travel?')
+    parser.add_argument('-l', '--limit', dest='limit', metavar='limit',
+                        default='10', type=int,
+                        help='Maximum amount of results')
+    parser.add_argument('-r', '--reverse', dest='reverse', default=False,
+                        action='store_true',
+                        help='Swap city_from and city_to values')
+    parser.add_argument('-a', '--all', dest='all', default=False,
+                        action='store_true',
+                        help='Show all journeys, so also those are full. By '
+                        'default it shows just available')
+    parser.add_argument('--long-location',
+                        dest='long_location',
+                        default=False,
+                        action='store_true',
+                        help='Show full location description. By default it '
+                        'is shortened to just name of city, without more '
+                        'specific location')
+    opts = parser.parse_args(sys.argv[1:])
+
+    # extend params from command line by content of .conf file
+    opts.api_key = config.get('default', 'api_key')
+    opts.api_url = config.get('default', 'api_url')
+
+    jizda = Jizdomat()
+    jizda.read(opts)
+    print jizda.format()
