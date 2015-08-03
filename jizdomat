@@ -1,14 +1,30 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
+# Copyright 2015 Martin Pavlásek (tuzticzka@gmail.com)
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import argparse
+import ConfigParser
+import datetime
 import json
+import sys
 import urllib
 import urllib2
-import datetime
-import collections
-import argparse
-import sys
-from ConfigParser import SafeConfigParser
+
+CONF_FILENAME = 'jizdomat.conf'
+
 
 def convert(dictionary):
     """Recursively converts dictionary keys to strings."""
@@ -18,19 +34,28 @@ def convert(dictionary):
         else:
             return dictionary
     return dict((str(k), convert(v))
-        for k, v in dictionary.items())
+                for k, v in dictionary.items())
+
 
 def u2str(uni):
+    """Unicode to native python str() object."""
     return uni.encode('utf-8')
 
-CONF_FILENAME = 'jizdomat.conf'
 
 class Jizdomat(object):
+
+    """Simple tool to list journeys published on jizdomat.cz."""
+
     def __init__(self):
         self.content = []
         self.options = {}
 
-    def read(self, options):
+    def configure(self, options):
+        """Setup params of journey query.
+
+        :param options: Params of journey
+        :type options: SafeConfigParser
+        """
         self.options = options
         date_departure = datetime.datetime.now()
         if options.days:
@@ -38,13 +63,13 @@ class Jizdomat(object):
             date_departure += delta
 
         if options.reverse:
-            options.city_from, options.city_to = options.city_to, options.city_from
+            (options.city_from, options.city_to) = (options.city_to,
+                                                    options.city_from)
 
         data = {
             'start': options.city_from,
             'end': options.city_to,
-            'format': 'json'
-            ,
+            'format': 'json',
             'key': options.api_key,
             'date_from': date_departure,
             'limit': options.limit
@@ -61,15 +86,16 @@ class Jizdomat(object):
         now = datetime.datetime.now()
         delta = d - now
         delta_str = '+%s, ' % delta.days
-
-        return d.strftime('%m/%d ({day_dif}%a) %H:%M'.format(day_dif=delta_str))
+        return d.strftime('%m/%d ({day_dif}%a) %H:%M'
+                          .format(day_dif=delta_str))
 
     def _format_city(self, city):
         if not self.options.long_location:
             return city.split(',')[0]
         return city
 
-    def format(self):
+    def result(self):
+        """Return result of query as human friendly oneline format."""
         ret = []
         for travel in self.content:
             travel = convert(travel['travel'])
@@ -77,7 +103,8 @@ class Jizdomat(object):
             if not self.options.all and travel['seats']['empty'] == 0:
                 continue
 
-            s = '{date}, {price} Kc, {seats_empty} volne, {driver} ({start} ➤ {end})'.format(
+            s = ('{date}, {price} Kc, {seats_empty} free, {driver} '
+                 '({start} ➤ {end}), {url}').format(
                 date=self._format_date(travel['date']),
                 start=self._format_city(travel['route']['start']),
                 end=self._format_city(travel['route']['end']),
@@ -85,23 +112,36 @@ class Jizdomat(object):
                 price=int(float(travel['price'])),
                 seats_empty=travel['seats']['empty'],
                 seats_sum=travel['seats']['total'],
-            )
+                url=travel['url'])
             ret.append(s)
 
         return '\n'.join(ret)
 
-if __name__ == '__main__':
-    config = SafeConfigParser()
-    with open(CONF_FILENAME) as fd:
+
+def parse_opts(conf):
+    """Read config file and merge content with values passed from command line.
+
+    :param conf: filename of config file
+    :type conf: string
+    """
+    config_default = {
+        'city_from': 'ostrava',
+        'city_to': 'brno',
+        'api_url': 'http://www.jizdomat.cz/api/search'}
+    config = ConfigParser.SafeConfigParser(config_default)
+    with open(conf) as fd:
         config.readfp(fd)
 
-    parser = argparse.ArgumentParser(description='CLI tool to get info about '
-        'spare seats using Jizdomat.cz API',
+    parser = argparse.ArgumentParser(
+        description=('CLI tool to get info about spare seats using '
+                     'Jizdomat.cz API'),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('-f', '--from', dest='city_from', metavar='city_from',
-                        default='brno', help='City from you want to travel')
+                        default=config.get('default', 'city_from'),
+                        help='City from you want to travel')
     parser.add_argument('-t', '--to', dest='city_to', metavar='city_to',
-                        default='frydek-mistek', help='Your destination')
+                        default=config.get('default', 'city_to'),
+                        help='Destination city')
     parser.add_argument('-d', '--days', dest='days', metavar='days',
                         default='0', type=int,
                         help='How many days in relative to current date you '
@@ -129,6 +169,10 @@ if __name__ == '__main__':
     opts.api_key = config.get('default', 'api_key')
     opts.api_url = config.get('default', 'api_url')
 
+if __name__ == '__main__':
+    opts = parse_opts(CONF_FILENAME)
+
     jizda = Jizdomat()
-    jizda.read(opts)
-    print jizda.format()
+    jizda.configure(opts)
+
+    print(jizda.result())

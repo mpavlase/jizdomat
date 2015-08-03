@@ -1,3 +1,8 @@
 [default]
 api_key = your-API-key
 api_url = http://www.jizdomat.cz/api/search
+
+# These values must follow name rules of cities in:
+# http://www.jizdomat.cz/api
+city_from = ostrava
+city_to = brno
