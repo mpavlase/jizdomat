@@ -35,6 +35,11 @@ Dostupné přepínače
 |*--long-location* | Zobrazovat plné (dlouhé) popisky míst odjezdu a příjezdu (default: False) |
 
 Všechny přepínače jsou také popsány v `jizdomat -h`.
+
+TODO
+-----
+* dopsat testy
+* zkusit si z toho udělat balíček pro pip
 ***
 
 Overview
